@@ -1,1 +1,77 @@
 
+name: MR-SPIDER APK Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages
+        run: |
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Configure Telegram API
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        run: |
+          if [ -z "$TELEGRAM_API_ID" ] || [ -z "$TELEGRAM_API_HASH" ]; then
+            echo "::error::Telegram API secrets are missing."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          p = Path("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java")
+          s = p.read_text()
+          api_id = os.environ["TELEGRAM_API_ID"].strip()
+          api_hash = os.environ["TELEGRAM_API_HASH"].strip()
+
+          if not api_id.isdigit():
+              raise SystemExit("Invalid API ID")
+
+          s, a = re.subn(r"APP_ID = \d+;", f"APP_ID = {api_id};", s, count=1)
+          s, b = re.subn(r'APP_HASH = "[^"]*";', f'APP_HASH = "{api_hash}";', s, count=1)
+
+          if a != 1 or b != 1:
+              raise SystemExit("Could not configure API credentials")
+
+          p.write_text(s)
+          PY
+
+      - name: Build APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :TMessagesProj_App:assembleAfatDebug --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MR-SPIDER-debug-APK
+          path: TMessagesProj_App/build/outputs/apk/afat/debug/app.apk
+          if-no-files-found: error
+          retention-days: 7
