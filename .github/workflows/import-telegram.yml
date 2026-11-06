@@ -1,0 +1,48 @@
+name: Import Telegram Android Source
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import-source:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout MR-SPIDER
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Clone Telegram Source
+        run: |
+          git clone --depth 1 --recursive --shallow-submodules \
+            https://github.com/DrKLO/Telegram.git /tmp/telegram-source
+
+      - name: Import Source
+        run: |
+          rsync -a --delete \
+            --exclude='/.git' \
+            --exclude='/.github/workflows/import-telegram.yml' \
+            /tmp/telegram-source/ ./
+
+          find . -mindepth 2 -name .git -exec rm -rf {} +
+
+          cat >> README.md <<'EOF'
+
+          ## MR-SPIDER
+
+          Unofficial customized Telegram Android client.
+          Upstream: https://github.com/DrKLO/Telegram
+          License: GNU GPL v2 or later.
+          EOF
+
+      - name: Commit and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Import Telegram Android source"
+          git push origin HEAD:main
